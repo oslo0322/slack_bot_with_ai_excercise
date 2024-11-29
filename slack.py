@@ -29,6 +29,13 @@ class SlackApp:
         except SlackApiError as e:
             assert e.response["error"]
 
+    def fetch_thread_conversation_history(self, ts):
+        try:
+            response = self.client.conversations_replies(channel=self.channel, ts=ts)
+            return response
+        except SlackApiError as e:
+            assert e.response["error"]
+
     def fetch_one_day_conversation_history(self):
         end_time = datetime.combine(date.today(), datetime.min.time())
         start_time = end_time - timedelta(days=1)
@@ -47,6 +54,7 @@ class SlackApp:
 
 if __name__ == "__main__":
     app = SlackApp(channel="C0833KTP9NV")
-    history = app.fetch_one_day_conversation_history()
-    serialized_history = app.serialize_conversation_history(history)
-    print(serialized_history)
+    history = app.fetch_thread_conversation_history("1732897140.815289")
+    print(history)
+    # serialized_history = app.serialize_conversation_history(history)
+    # print(serialized_history)

@@ -1,3 +1,4 @@
+import json
 import os
 
 import dotenv
@@ -89,8 +90,23 @@ def process2(client: SocketModeClient, req: SocketModeRequest):
                 channel=req.payload["event"]["channel"],
                 timestamp=req.payload["event"]["ts"],
             )
+    if req.type == "interactive" and req.payload.get("type") == "message_action":
+        if req.payload["callback_id"] == "summary_thread":
+            response = SocketModeResponse(envelope_id=req.envelope_id)
+            client.send_socket_mode_response(response)
+            response = client.web_client.chat_postMessage(
+                channel=req.payload["channel"]["id"],
+                thread_ts=req.payload["message"]["thread_ts"],
+                text="Hello! I'm here to help you summarize the conversation.",
+            )
+            print(response)
 
     if req.type == "interactive" and req.payload.get("type") == "shortcut":
+        if req.payload["callback_id"] == "summary_thread":
+            response = SocketModeResponse(envelope_id=req.envelope_id)
+            client.send_socket_mode_response(response)
+            print(req.payload)
+            print(json.dumps(req.payload, indent=2))
         if req.payload["callback_id"] == "hello-shortcut":
             # Acknowledge the request
             response = SocketModeResponse(envelope_id=req.envelope_id)
@@ -99,17 +115,18 @@ def process2(client: SocketModeClient, req: SocketModeRequest):
             # print(req.payload["event"]["channel"])
             response = client.web_client.chat_postMessage(
                 channel="C0833KTP9NV",
+                thread_ts=req.payload["action_ts"],
                 text="Hello! I'm here to help you summarize the conversation.",
             )
-
-            client.web_client.chat_update(
-                channel="C0833KTP9NV",
-                ts=response["ts"],
-                text=summary_history(
-                    slack_web_client=client.web_client,
-                    channel="C0833KTP9NV",
-                ),
-            )
+            #
+            # client.web_client.chat_update(
+            #     channel="C0833KTP9NV",
+            #     ts=response["ts"],
+            #     text=summary_history(
+            #         slack_web_client=client.web_client,
+            #         channel="C0833KTP9NV",
+            #     ),
+            # )
 
     if req.type == "interactive" and req.payload.get("type") == "view_submission":
         if req.payload["view"]["callback_id"] == "hello-modal":
