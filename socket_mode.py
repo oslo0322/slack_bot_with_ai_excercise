@@ -15,124 +15,123 @@ from slack import SlackApp
 dotenv.load_dotenv()
 
 
-def process(client: SocketModeClient, req: SocketModeRequest):
-    print(req.type)
-    if req.type == "events_api":
-        # Acknowledge the request anyway
-        response = SocketModeResponse(envelope_id=req.envelope_id)
-        client.send_socket_mode_response(response)
+def ack(req, client):
+    response = SocketModeResponse(envelope_id=req.envelope_id)
+    client.send_socket_mode_response(response)
 
-        # Add a reaction to the message if it's a new message
-        if (
-            req.payload["event"]["type"] == "message"
-            and req.payload["event"].get("subtype") is None
-        ):
-            client.web_client.reactions_add(
-                name="eyes",
-                channel=req.payload["event"]["channel"],
-                timestamp=req.payload["event"]["ts"],
+
+def summary_thead(slack_web_client, channel, thread_ts):
+    app = SlackApp(channel=channel, client=slack_web_client)
+    history = app.fetch_thread_conversation_history(thread_ts)
+    serialized_history = app.serialize_conversation_history(history)
+    gs = GeminiService()
+    gs.setup()
+    return gs.generate_content("Summarize the conversation", serialized_history)
+
+
+def get_command(state_values: dict):
+    for k in state_values.keys():
+        if "type" in state_values and "value" in state_values:
+            return state_values["value"]
+        else:
+            return get_command(state_values[k])
+
+
+def query_message(slack_web_client, channel, thread_ts, command):
+    app = SlackApp(channel=channel, client=slack_web_client)
+    history = app.fetch_thread_conversation_history(thread_ts)
+    serialized_history = app.serialize_conversation_history(history)
+    gs = GeminiService()
+    gs.setup()
+    result = gs.generate_content(command, serialized_history)
+    print(result)
+    return result
+
+
+def process2(client: SocketModeClient, req: SocketModeRequest):
+    print(req.type, req.payload.get("type"))
+
+    if req.type == "interactive" and req.payload.get("type") == "message_action":
+        if req.payload["callback_id"] == "summary_thread":
+            ack(req, client)
+            result = summary_thead(
+                client.web_client,
+                req.payload["channel"]["id"],
+                req.payload["message"]["thread_ts"],
             )
-    if req.type == "interactive" and req.payload.get("type") == "shortcut":
-        if req.payload["callback_id"] == "hello-shortcut":
-            # Acknowledge the request
-            response = SocketModeResponse(envelope_id=req.envelope_id)
-            client.send_socket_mode_response(response)
+            client.web_client.chat_postMessage(
+                channel=req.payload["channel"]["id"],
+                thread_ts=req.payload["message"]["thread_ts"],
+                text=result,
+            )
+        if req.payload["callback_id"] == "query_command":
+            ack(req, client)
+
             # Open a welcome modal
+            # print(json.dumps(req.payload, indent=2))
+            channel_id = req.payload["channel"]["id"]
+            message = req.payload["message"]["text"]
+            message_ts = req.payload["message"]["ts"]
+            thread = req.payload["message"].get("thread_ts")
+            metadata = {
+                "channel_id": channel_id,
+                "message_text": message,
+                "message_ts": message,
+                "thread_ts": thread,
+            }
             client.web_client.views_open(
                 trigger_id=req.payload["trigger_id"],
                 view={
                     "type": "modal",
-                    "callback_id": "hello-modal",
-                    "title": {"type": "plain_text", "text": "Greetings!"},
-                    "submit": {"type": "plain_text", "text": "Good Bye"},
+                    "callback_id": "query-modal",
+                    "title": {"type": "plain_text", "text": "Shit!"},
+                    "submit": {"type": "plain_text", "text": "submit"},
+                    "private_metadata": json.dumps(metadata),
                     "blocks": [
                         {
-                            "type": "section",
-                            "text": {"type": "mrkdwn", "text": "Hello!"},
+                            "type": "input",
+                            "element": {"type": "plain_text_input"},
+                            "label": {
+                                "type": "plain_text",
+                                "text": "Test",
+                                "emoji": True,
+                            },
+                            "hint": {
+                                "type": "plain_text",
+                                "text": "Please enter command you want to ask with AI",
+                                "emoji": True,
+                            },
                         }
                     ],
                 },
             )
 
     if req.type == "interactive" and req.payload.get("type") == "view_submission":
-        if req.payload["view"]["callback_id"] == "hello-modal":
+        if req.payload["view"]["callback_id"] == "query-modal":
             # Acknowledge the request and close the modal
-            response = SocketModeResponse(envelope_id=req.envelope_id)
-            client.send_socket_mode_response(response)
+            ack(req, client)
+            command = ""
 
+            try:
+                command = get_command(req.payload["view"]["state"]["values"])
+                print(command)
+            except Exception as e:
+                print(e)
 
-def summary_history(slack_web_client, channel):
-    app = SlackApp(channel=channel, client=slack_web_client)
-    history = app.fetch_one_day_conversation_history()
-    serialized_history = app.serialize_conversation_history(history)
-    print(serialized_history)
-    gs = GeminiService()
-    gs.setup()
-    result = gs.generate_content("Summarize the conversation", serialized_history)
-    print(result)
-    return result
-
-
-def process2(client: SocketModeClient, req: SocketModeRequest):
-    print(req.type, req.payload.get("type"), req.payload["callback_id"])
-    if req.type == "events_api":
-        # Acknowledge the request anyway
-        response = SocketModeResponse(envelope_id=req.envelope_id)
-        client.send_socket_mode_response(response)
-
-        # Add a reaction to the message if it's a new message
-        if (
-            req.payload["event"]["type"] == "message"
-            and req.payload["event"].get("subtype") is None
-        ):
-            client.web_client.reactions_add(
-                name="eyes",
-                channel=req.payload["event"]["channel"],
-                timestamp=req.payload["event"]["ts"],
+            load_private_metadata = json.loads(req.payload["view"]["private_metadata"])
+            # print(load_private_metadata)
+            result = query_message(
+                client.web_client,
+                load_private_metadata["channel_id"],
+                load_private_metadata["thread_ts"],
+                command=command,
             )
-    if req.type == "interactive" and req.payload.get("type") == "message_action":
-        if req.payload["callback_id"] == "summary_thread":
-            response = SocketModeResponse(envelope_id=req.envelope_id)
-            client.send_socket_mode_response(response)
-            response = client.web_client.chat_postMessage(
-                channel=req.payload["channel"]["id"],
-                thread_ts=req.payload["message"]["thread_ts"],
-                text="Hello! I'm here to help you summarize the conversation.",
+            client.web_client.chat_postEphemeral(
+                channel=load_private_metadata["channel_id"],
+                thread_ts=load_private_metadata["thread_ts"],
+                user=req.payload["user"]["id"],
+                text=result,
             )
-            print(response)
-
-    if req.type == "interactive" and req.payload.get("type") == "shortcut":
-        if req.payload["callback_id"] == "summary_thread":
-            response = SocketModeResponse(envelope_id=req.envelope_id)
-            client.send_socket_mode_response(response)
-            print(req.payload)
-            print(json.dumps(req.payload, indent=2))
-        if req.payload["callback_id"] == "hello-shortcut":
-            # Acknowledge the request
-            response = SocketModeResponse(envelope_id=req.envelope_id)
-            client.send_socket_mode_response(response)
-            # Open a welcome modal
-            # print(req.payload["event"]["channel"])
-            response = client.web_client.chat_postMessage(
-                channel="C0833KTP9NV",
-                thread_ts=req.payload["action_ts"],
-                text="Hello! I'm here to help you summarize the conversation.",
-            )
-            #
-            # client.web_client.chat_update(
-            #     channel="C0833KTP9NV",
-            #     ts=response["ts"],
-            #     text=summary_history(
-            #         slack_web_client=client.web_client,
-            #         channel="C0833KTP9NV",
-            #     ),
-            # )
-
-    if req.type == "interactive" and req.payload.get("type") == "view_submission":
-        if req.payload["view"]["callback_id"] == "hello-modal":
-            # Acknowledge the request and close the modal
-            response = SocketModeResponse(envelope_id=req.envelope_id)
-            client.send_socket_mode_response(response)
 
 
 def main():
