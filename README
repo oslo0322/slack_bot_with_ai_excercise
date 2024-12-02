@@ -1,0 +1,13 @@
+# slack setting
+
+Should setup a slack bot, and add message based shortcuts.
+currently, require two shortcuts:
+- summary
+- query
+
+# LLM setting.
+OpenAI API should prepaid the balance, and I use Google Gemini API instead.
+
+# Secret setting.
+please checkout `.env.sample` file.
+
