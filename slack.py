@@ -1,6 +1,3 @@
-import logging
-
-
 import os
 from datetime import date, datetime, timedelta
 
@@ -56,5 +53,3 @@ if __name__ == "__main__":
     app = SlackApp(channel="C0833KTP9NV")
     history = app.fetch_thread_conversation_history("1732897140.815289")
     print(history)
-    # serialized_history = app.serialize_conversation_history(history)
-    # print(serialized_history)
